@@ -1,7 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-
-@custom-variant dark (&:is(.dark *));
 
 :root {
   --background: oklch(0.05 0 0);
@@ -22,10 +19,12 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    border-color: rgba(255, 255, 255, 0.05);
+    outline-color: rgba(255, 255, 255, 0.1);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--background);
+    color: var(--foreground);
   }
   html {
     scroll-behavior: smooth;
