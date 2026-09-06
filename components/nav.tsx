@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react"
 
+const links = [
+  { href: "#about", label: "About" },
+  { href: "#projects", label: "Works" },
+  { href: "#experience", label: "Experience" },
+  { href: "#skills", label: "Skills" },
+  { href: "#contact", label: "Correspond" },
+]
+
 export function Nav() {
   const [scrolled, setScrolled] = useState(false)
 
@@ -13,33 +21,34 @@ export function Nav() {
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-center px-6 py-5 transition-all duration-500 ${
-        scrolled ? "bg-black/85 backdrop-blur-xl border-b border-white/5" : ""
+      className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 sm:px-10 py-5 transition-all duration-700 ${
+        scrolled
+          ? "bg-ink/85 backdrop-blur-md border-b border-gold/10"
+          : "bg-transparent border-b border-transparent"
       }`}
     >
-      <div className="flex items-center gap-8 text-sm font-mono tracking-wider">
-        <a
-          href="#hero"
-          className="text-white hover:text-white/60 transition-colors font-semibold"
-        >
-          S·E
-        </a>
-        <a href="#about" className="text-white/50 hover:text-white/80 transition-colors hidden sm:block">
-          ABOUT
-        </a>
-        <a href="#projects" className="text-white/50 hover:text-white/80 transition-colors hidden sm:block">
-          PROJECTS
-        </a>
-        <a href="#skills" className="text-white/50 hover:text-white/80 transition-colors hidden sm:block">
-          SKILLS
-        </a>
-        <a href="#experience" className="text-white/50 hover:text-white/80 transition-colors hidden sm:block">
-          EXPERIENCE
-        </a>
-        <a href="#contact" className="text-white/50 hover:text-white/80 transition-colors hidden sm:block">
-          CONTACT
-        </a>
+      <a href="#hero" className="font-serif text-lg tracking-[0.3em] text-parchment hover:text-gold transition-colors duration-500">
+        S·E
+      </a>
+
+      <div className="hidden md:flex items-center gap-8">
+        {links.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className="font-serif text-[11px] tracking-[0.3em] uppercase text-stone hover:text-gold transition-colors duration-500"
+          >
+            {link.label}
+          </a>
+        ))}
       </div>
+
+      <a
+        href="#contact"
+        className="md:hidden font-serif text-[11px] tracking-[0.3em] uppercase text-stone hover:text-gold transition-colors"
+      >
+        Menu ↓
+      </a>
     </nav>
   )
 }

@@ -20,11 +20,12 @@ export interface PortfolioData {
     lastName: string;
     tagline: string;
     pills: string[];
-    imageUrl: string;
+    backgroundArt: string;
   };
   about: {
     paragraphs: string[];
-    asciiArt: string;
+    portraitUrl: string;
+    quote: string;
   };
   projects: {
     id: string;
@@ -36,6 +37,7 @@ export interface PortfolioData {
     videoUrl: string;
     githubUrl: string;
     highlights: string[];
+    location?: { x: number; y: number; region: string };
   }[];
   experience: {
     id: string;
@@ -75,7 +77,7 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
       lastName: "Ezeocha",
       tagline: "Computer Science Student · Queen's University",
       pills: ["Artificial Intelligence", "Backend Engineering", "Cybersecurity", "Full-Stack Dev"],
-      imageUrl: "",
+      backgroundArt: "",
     },
     about: {
       paragraphs: [
@@ -84,7 +86,8 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
         "Beyond coding, I've been actively involved in student leadership through COMPSA, contributing to marketing and equity-focused programs within the computing community.",
         "I'm especially drawn to how technology can improve safety, accessibility, and human connection while remaining reliable and thoughtfully designed.",
       ],
-      asciiArt: "",
+      portraitUrl: "",
+      quote: "",
     },
     projects: [
       {
@@ -97,6 +100,7 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
         videoUrl: "",
         githubUrl: "https://github.com/SeaUgoEze",
         highlights: ["94.2% testing accuracy achieved", "Reduced false alerts by 25%", "Python · ML pipeline · behavioral data"],
+        location: { x: 480, y: 250, region: "The North" },
       },
       {
         id: "2",
@@ -108,6 +112,7 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
         videoUrl: "",
         githubUrl: "https://github.com/SeaUgoEze",
         highlights: ["Full backend architecture and REST APIs", "Git-based collaborative development", "Secure anonymous session handling"],
+        location: { x: 610, y: 645, region: "The Crownlands" },
       },
       {
         id: "3",
@@ -119,6 +124,7 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
         videoUrl: "",
         githubUrl: "https://github.com/SeaUgoEze",
         highlights: ["Real-time step-by-step visualization", "Accessible educational UI/UX", "Built entirely in Java from scratch"],
+        location: { x: 340, y: 840, region: "The Reach" },
       },
     ],
     experience: [

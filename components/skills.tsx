@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
+import { SectionHeading, GoldDivider } from "./ornaments"
+import { useReveal } from "./reveal"
 
 interface Skill {
   id: string
@@ -9,183 +11,196 @@ interface Skill {
   icon: string
 }
 
-interface SkillsProps {
-  skills: Skill[]
-}
-
-const nodeColors: Record<string, string> = {
-  Languages: "#6db366",
-  Technologies: "#8fd688",
-  Domains: "#7a8ea0",
-  Tools: "#9a8060",
-  "Soft Skills": "#c0a868",
-}
-
-export function Skills({ skills }: SkillsProps) {
-  const sectionRef = useRef<HTMLDivElement>(null)
+/**
+ * Skills as a gold constellation on canvas: nodes drift slowly, connect
+ * to nearby nodes with faint golden lines, and brighten on hover.
+ */
+export function Skills({ skills }: { skills: Skill[] }) {
+  const ref = useReveal<HTMLElement>()
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("opacity-100", "translate-y-0")
-            entry.target.classList.remove("opacity-0", "translate-y-8")
-          }
-        })
-      },
-      { threshold: 0.1 }
-    )
-    const elements = sectionRef.current?.querySelectorAll(".reveal")
-    elements?.forEach((el) => observer.observe(el))
-    return () => observer.disconnect()
-  }, [])
+  const nodesRef = useRef<{ x: number; y: number; vx: number; vy: number; r: number; label: string }[]>([])
+  const mouseRef = useRef<{ x: number; y: number } | null>(null)
+  const [hovered, setHovered] = useState<string | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const wrap = wrapRef.current
-    if (!canvas || !wrap) return
+    if (!canvas) return
+
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect()
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = rect.width * dpr
+      canvas.height = rect.height * dpr
+    }
+    resize()
+    window.addEventListener("resize", resize)
 
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
-    let cw = wrap.offsetWidth
-    let ch = wrap.offsetHeight
-    canvas.width = cw
-    canvas.height = ch
-
-    const positions = skills.map((_, i) => {
-      const cols = Math.ceil(Math.sqrt(skills.length))
-      const row = Math.floor(i / cols)
-      const col = i % cols
-      return {
-        x: (col + 0.5) / cols,
-        y: (row + 0.5) / Math.ceil(skills.length / cols),
-      }
-    })
-
-    let t = 0
-    let animating = false
-
-    function drawEdges() {
-      cw = wrap.offsetWidth
-      ch = wrap.offsetHeight
-      canvas.width = cw
-      canvas.height = ch
-      ctx.clearRect(0, 0, cw, ch)
-      t += 0.007
-
-      for (let i = 0; i < positions.length; i++) {
-        for (let j = i + 1; j < positions.length; j++) {
-          const a = positions[i]
-          const b = positions[j]
-          const dist = Math.hypot(a.x - b.x, a.y - b.y)
-          if (dist > 0.4) continue
-
-          const x1 = a.x * cw
-          const y1 = a.y * ch
-          const x2 = b.x * cw
-          const y2 = b.y * ch
-          const pulse = Math.sin(t + (i + j) * 1.4) * 0.5 + 0.5
-
-          const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, `rgba(255,255,255,${0.03 + pulse * 0.03})`)
-          grad.addColorStop(0.5, `rgba(255,255,255,${0.06 + pulse * 0.04})`)
-          grad.addColorStop(1, `rgba(255,255,255,${0.03 + pulse * 0.03})`)
-
-          ctx.beginPath()
-          ctx.moveTo(x1, y1)
-          const mx = (x1 + x2) / 2 + Math.sin(t + i * j * 0.5) * 15
-          const my = (y1 + y2) / 2 + Math.cos(t + (i + j) * 0.7) * 12
-          ctx.quadraticCurveTo(mx, my, x2, y2)
-          ctx.strokeStyle = grad
-          ctx.lineWidth = 1
-          ctx.stroke()
-
-          const prog = Math.sin(t * 1.4 + i + j) * 0.5 + 0.5
-          const ex = x1 + (x2 - x1) * prog
-          const ey = y1 + (y2 - y1) * prog
-          ctx.beginPath()
-          ctx.arc(ex, ey, 2, 0, Math.PI * 2)
-          ctx.fillStyle = `rgba(255,255,255,${0.2 + pulse * 0.4})`
-          ctx.fill()
+    // Initialize nodes once
+    if (nodesRef.current.length === 0 && skills.length > 0) {
+      nodesRef.current = skills.map((s, i) => {
+        const angle = (i / skills.length) * Math.PI * 2
+        const radius = 0.25 + ((i * 13) % 20) / 100
+        return {
+          x: 0.5 + Math.cos(angle) * radius,
+          y: 0.5 + Math.sin(angle) * radius * 0.9,
+          vx: (((i * 7) % 10) - 5) * 0.00022,
+          vy: (((i * 11) % 10) - 5) * 0.00022,
+          r: 2.6 + ((i * 5) % 3),
+          label: s.name,
         }
-      }
-
-      if (animating) requestAnimationFrame(drawEdges)
+      })
     }
 
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !animating) {
-          animating = true
-          drawEdges()
-        } else if (!entries[0].isIntersecting) {
-          animating = false
-        }
-      },
-      { threshold: 0.1 }
-    )
-    obs.observe(wrap)
+    let raf: number
+    const render = () => {
+      const rect = canvas.getBoundingClientRect()
+      const W = rect.width
+      const H = rect.height
+      const dpr = window.devicePixelRatio || 1
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, W, H)
 
-    return () => obs.disconnect()
+      const nodes = nodesRef.current
+      const mouse = mouseRef.current
+
+      // Move
+      nodes.forEach((n) => {
+        n.x += n.vx
+        n.y += n.vy
+        if (n.x < 0.06 || n.x > 0.94) n.vx *= -1
+        if (n.y < 0.08 || n.y > 0.92) n.vy *= -1
+      })
+
+      // Connections
+      ctx.lineWidth = 0.7
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = (nodes[i].x - nodes[j].x) * W
+          const dy = (nodes[i].y - nodes[j].y) * H
+          const dist = Math.hypot(dx, dy)
+          if (dist < 180) {
+            const alpha = (1 - dist / 180) * 0.28
+            ctx.strokeStyle = `rgba(215,152,58,${alpha})`
+            ctx.beginPath()
+            ctx.moveTo(nodes[i].x * W, nodes[i].y * H)
+            ctx.lineTo(nodes[j].x * W, nodes[j].y * H)
+            ctx.stroke()
+          }
+        }
+      }
+
+      // Nodes
+      nodes.forEach((n) => {
+        const px = n.x * W
+        const py = n.y * H
+        const isHovered = mouse && Math.hypot(mouse.x - px, mouse.y - py) < 46
+
+        if (isHovered) {
+          ctx.beginPath()
+          ctx.arc(px, py, n.r + 9, 0, Math.PI * 2)
+          ctx.strokeStyle = "rgba(215,152,58,0.5)"
+          ctx.lineWidth = 1
+          ctx.stroke()
+        }
+
+        const grad = ctx.createRadialGradient(px, py, 0, px, py, n.r * 4)
+        grad.addColorStop(0, "rgba(232,180,95,0.95)")
+        grad.addColorStop(1, "rgba(215,152,58,0)")
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.arc(px, py, n.r * 4, 0, Math.PI * 2)
+        ctx.fill()
+
+        ctx.fillStyle = "#e8b45f"
+        ctx.beginPath()
+        ctx.arc(px, py, n.r, 0, Math.PI * 2)
+        ctx.fill()
+      })
+
+      raf = requestAnimationFrame(render)
+    }
+    raf = requestAnimationFrame(render)
+
+    const onMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+
+      // Update hovered label
+      const mouse = mouseRef.current
+      let found: string | null = null
+      for (const n of nodesRef.current) {
+        if (mouse && Math.hypot(mouse.x - n.x * rect.width, mouse.y - n.y * rect.height) < 46) {
+          found = n.label
+          break
+        }
+      }
+      setHovered(found)
+    }
+    const onLeave = () => {
+      mouseRef.current = null
+      setHovered(null)
+    }
+    canvas.addEventListener("mousemove", onMove)
+    canvas.addEventListener("mouseleave", onLeave)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener("resize", resize)
+      canvas.removeEventListener("mousemove", onMove)
+      canvas.removeEventListener("mouseleave", onLeave)
+    }
   }, [skills])
 
+  const categories = Array.from(new Set(skills.map((s) => s.category)))
+
   return (
-    <section
-      id="skills"
-      ref={sectionRef}
-      className="py-24 sm:py-32 px-6 bg-gradient-to-b from-black via-neutral-950 to-black relative overflow-hidden"
-    >
-      <div className="max-w-6xl mx-auto">
-        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 mb-12">
-          <p className="text-xs tracking-[0.3em] uppercase text-white/40 mb-4 font-mono">The Ecosystem</p>
-          <h2 className="font-mono text-4xl sm:text-5xl md:text-6xl font-light text-white">
-            Skills <span className="text-white/50 italic">&amp; Technologies</span>
-          </h2>
+    <section id="skills" ref={ref} className="relative py-28 sm:py-36 px-6">
+      <div className="max-w-5xl mx-auto">
+        <SectionHeading numeral="IV · Crafts" title="Skills" />
+
+        <div className="relative reveal h-[440px] sm:h-[500px] border border-gold/10 bg-ink-2/40">
+          <canvas ref={canvasRef} className="w-full h-full" data-cursor="view" />
+
+          {/* Hovered label */}
+          {hovered && (
+            <div className="absolute top-5 left-1/2 -translate-x-1/2 pointer-events-none">
+              <p className="font-serif text-lg tracking-[0.3em] uppercase text-gold">{hovered}</p>
+            </div>
+          )}
+
+          {/* Corner marks */}
+          <span className="absolute top-3 left-3 w-4 h-4 border-t border-l border-gold/40" />
+          <span className="absolute top-3 right-3 w-4 h-4 border-t border-r border-gold/40" />
+          <span className="absolute bottom-3 left-3 w-4 h-4 border-b border-l border-gold/40" />
+          <span className="absolute bottom-3 right-3 w-4 h-4 border-b border-r border-gold/40" />
         </div>
 
-        <div ref={wrapRef} className="reveal opacity-0 translate-y-8 transition-all duration-700 relative h-[500px] sm:h-[580px]">
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-
-          {skills.map((skill, i) => {
-            const cols = Math.ceil(Math.sqrt(skills.length))
-            const row = Math.floor(i / cols)
-            const col = i % cols
-            const x = ((col + 0.5) / cols) * 100
-            const y = ((row + 0.5) / Math.ceil(skills.length / cols)) * 100
-            const color = nodeColors[skill.category] || "#888"
-
-            return (
-              <div
-                key={skill.id}
-                className="absolute flex flex-col items-center cursor-pointer transition-transform duration-300 hover:scale-110 hover:-translate-y-1 group"
-                style={{
-                  left: `${x}%`,
-                  top: `${y}%`,
-                  transform: "translate(-50%, -50%)",
-                }}
-              >
-                <div
-                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center border transition-shadow duration-300 group-hover:shadow-lg"
-                  style={{
-                    background: `${color}15`,
-                    borderColor: `${color}40`,
-                  }}
-                >
-                  <span className="text-xl sm:text-2xl">{skill.icon}</span>
-                </div>
-                <span className="text-[10px] tracking-[0.12em] uppercase mt-2 text-white/40 group-hover:text-white/80 transition-colors text-center max-w-[80px]">
-                  {skill.name}
-                </span>
-                <span className="text-[9px] text-white/20 mt-1 text-center max-w-[80px]">
-                  {skill.category}
-                </span>
+        {/* Legend by category */}
+        <div className="reveal mt-12 space-y-6">
+          {categories.map((cat, ci) => (
+            <div key={cat} style={{ transitionDelay: `${ci * 100}ms` }}>
+              <div className="flex items-center gap-4 mb-3">
+                <h3 className="font-serif text-[11px] tracking-[0.4em] uppercase text-gold/70">{cat}</h3>
+                <span className="rule-gold flex-1" />
               </div>
-            )
-          })}
+              <div className="flex flex-wrap gap-x-7 gap-y-2">
+                {skills
+                  .filter((s) => s.category === cat)
+                  .map((s) => (
+                    <span key={s.id} className="font-body text-lg text-parchment/70">
+                      {s.name}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-14">
+          <GoldDivider />
         </div>
       </div>
     </section>
