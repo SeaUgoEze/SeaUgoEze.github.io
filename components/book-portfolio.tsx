@@ -13,8 +13,22 @@ type BookView = { kind: "contents" } | { kind: "section"; sectionId: string; ent
 type TurnDirection = "next" | "previous"
 type TurnPhase = "out" | "in" | null
 
+type WatchlistRatings = Record<string, number>
+const WATCHLIST_RATINGS_KEY = "sean-portfolio-watchlist-ratings"
+
 function getEntry(section: PortfolioSection, index: number): PortfolioEntry | undefined {
   return section.entries[index]
+}
+
+function isSinglePageSection(section: PortfolioSection) {
+  return section.id === "skills" || section.id === "watchlist" || section.id === "resume"
+}
+
+function findSectionWithEntries(sections: PortfolioSection[], start: number, step: 1 | -1) {
+  for (let index = start; index >= 0 && index < sections.length; index += step) {
+    if (sections[index].entries.length > 0) return sections[index]
+  }
+  return undefined
 }
 
 function reducedMotion() {
@@ -29,10 +43,12 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
   const [turnPhase, setTurnPhase] = useState<TurnPhase>(null)
   const [dragging, setDragging] = useState(false)
   const [dragProgress, setDragProgress] = useState(0)
+  const [watchlistRatings, setWatchlistRatings] = useState<WatchlistRatings>({})
   const dragStart = useRef<number | null>(null)
   const turningRef = useRef(false)
   const timers = useRef<number[]>([])
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const suppressClick = useRef(false)
 
   const visibleSections = useMemo(
     () => sections
@@ -43,6 +59,26 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
   const activeSection = view.kind === "section" ? visibleSections.find((section) => section.id === view.sectionId) : undefined
   const activeEntry = activeSection && view.kind === "section" ? getEntry(activeSection, view.entryIndex) : undefined
   const sectionIndex = activeSection ? visibleSections.findIndex((section) => section.id === activeSection.id) : -1
+  const sceneArt = backgroundArt || "/art/reading-room.png"
+
+  useEffect(() => {
+    try {
+      const savedRatings = window.localStorage.getItem(WATCHLIST_RATINGS_KEY)
+      if (savedRatings) setWatchlistRatings(JSON.parse(savedRatings) as WatchlistRatings)
+    } catch {
+      // Ratings are a local enhancement; the book still works if storage is unavailable.
+    }
+  }, [])
+
+  const rateWatchlistEntry = useCallback((entryId: string, rating: number) => {
+    const nextRatings = { ...watchlistRatings, [entryId]: rating }
+    setWatchlistRatings(nextRatings)
+    try {
+      window.localStorage.setItem(WATCHLIST_RATINGS_KEY, JSON.stringify(nextRatings))
+    } catch {
+      // Keep the in-memory rating when browser storage is unavailable.
+    }
+  }, [watchlistRatings])
 
   const finishTurn = useCallback((nextView: BookView, direction: TurnDirection) => {
     if (turningRef.current) return
@@ -79,35 +115,55 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
     setOpening(true)
     const timer = window.setTimeout(() => {
       setOpened(true)
-      setOpening(false)
-    }, 460)
+      const settleTimer = window.setTimeout(() => setOpening(false), 460)
+      timers.current.push(settleTimer)
+    }, 420)
     timers.current.push(timer)
   }, [opened, opening])
 
   const enterSection = useCallback((section: PortfolioSection) => {
     if (turningRef.current) return
-    finishTurn({ kind: "section", sectionId: section.id, entryIndex: -1 }, "next")
-  }, [finishTurn])
+    const requestedIndex = visibleSections.findIndex((item) => item.id === section.id)
+    const target = findSectionWithEntries(visibleSections, requestedIndex, 1)
+    if (!target) return
+    finishTurn({ kind: "section", sectionId: target.id, entryIndex: 0 }, "next")
+  }, [finishTurn, visibleSections])
 
   const goBack = useCallback(() => {
     if (view.kind === "contents" || turningRef.current) return
-    if (view.entryIndex >= 0) finishTurn({ ...view, entryIndex: -1 }, "previous")
-    else finishTurn({ kind: "contents" }, "previous")
-  }, [finishTurn, view])
+    finishTurn({ kind: "contents" }, "previous")
+  }, [finishTurn, view.kind])
 
   const goPrevious = useCallback(() => {
     if (view.kind === "contents" || !activeSection || turningRef.current) return
-    if (view.entryIndex > 0 && activeSection.id !== "skills") finishTurn({ ...view, entryIndex: view.entryIndex - 1 }, "previous")
-    else if (view.entryIndex === 0) finishTurn({ ...view, entryIndex: -1 }, "previous")
-    else finishTurn({ kind: "contents" }, "previous")
-  }, [activeSection, finishTurn, view])
+    if (view.entryIndex > 0 && !isSinglePageSection(activeSection)) {
+      finishTurn({ ...view, entryIndex: view.entryIndex - 1 }, "previous")
+      return
+    }
+    if (view.entryIndex >= 0) {
+      finishTurn({ ...view, entryIndex: -1 }, "previous")
+      return
+    }
+    const previousSection = findSectionWithEntries(visibleSections, sectionIndex - 1, -1)
+    if (previousSection) {
+      finishTurn({ kind: "section", sectionId: previousSection.id, entryIndex: previousSection.entries.length - 1 }, "previous")
+    } else {
+      finishTurn({ kind: "contents" }, "previous")
+    }
+  }, [activeSection, finishTurn, sectionIndex, view, visibleSections])
 
   const goNext = useCallback(() => {
     if (view.kind === "contents" || !activeSection || turningRef.current) return
-    if (activeSection.entries.length === 0) return
-    if (view.entryIndex < 0) finishTurn({ ...view, entryIndex: 0 }, "next")
-    else if (activeSection.id !== "skills" && view.entryIndex < activeSection.entries.length - 1) finishTurn({ ...view, entryIndex: view.entryIndex + 1 }, "next")
-    else if (sectionIndex < visibleSections.length - 1) finishTurn({ kind: "section", sectionId: visibleSections[sectionIndex + 1].id, entryIndex: -1 }, "next")
+    if (view.entryIndex < 0) {
+      finishTurn({ ...view, entryIndex: 0 }, "next")
+      return
+    }
+    if (!isSinglePageSection(activeSection) && view.entryIndex < activeSection.entries.length - 1) {
+      finishTurn({ ...view, entryIndex: view.entryIndex + 1 }, "next")
+      return
+    }
+    const nextSection = findSectionWithEntries(visibleSections, sectionIndex + 1, 1)
+    if (nextSection) finishTurn({ kind: "section", sectionId: nextSection.id, entryIndex: -1 }, "next")
   }, [activeSection, finishTurn, sectionIndex, view, visibleSections])
 
   useEffect(() => {
@@ -164,6 +220,16 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
 
+  function onPageClick(event: React.MouseEvent<HTMLDivElement>) {
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
+    const target = event.target as HTMLElement
+    if (target.closest("button, a, input, textarea, select, label")) return
+    goNext()
+  }
+
   function onTouchStart(event: React.TouchEvent<HTMLDivElement>) {
     const touch = event.changedTouches[0]
     touchStart.current = { x: touch.clientX, y: touch.clientY }
@@ -176,6 +242,8 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
     const dy = touch.clientY - touchStart.current.y
     touchStart.current = null
     if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy)) return
+    suppressClick.current = true
+    window.setTimeout(() => { suppressClick.current = false }, 400)
     if (dx < 0) {
       if (view.kind === "contents") {
         const first = visibleSections[0]
@@ -188,7 +256,7 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
   const turnClass = turnPhase ? `is-turning-${turnDirection} is-turning-${turnPhase}` : ""
 
   return (
-    <main className="book-stage">
+    <main className="book-stage" style={{ "--room-art": `url("${sceneArt}")` } as React.CSSProperties}>
       {!opened ? (
         <section className={`cover-scene ${opening ? "is-opening" : ""}`} aria-label="Portfolio cover">
           <p className="cover-name">{name}</p>
@@ -217,7 +285,7 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
           <p className="cover-hint">Use the page edges to turn through the book</p>
         </section>
       ) : (
-        <section className="book-reader" aria-label="Interactive portfolio book" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <section className={`book-reader ${opening ? "is-entering" : ""}`} aria-label="Interactive portfolio book" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
           <div className="reader-pedestal" aria-hidden="true"><span /><span /><span /></div>
           <div className={`book-object ${turnClass}`}>
             <div className="book-page book-page-left">
@@ -241,7 +309,7 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
               ) : null}
               <span className="page-number page-number-left">{view.kind === "contents" ? "i" : String(Math.max(view.entryIndex + 1, 0)).padStart(2, "0")}</span>
             </div>
-            <div className="book-page book-page-right" style={pageStyle}>
+            <div className="book-page book-page-right" style={pageStyle} onClick={onPageClick}>
               {view.kind === "contents" ? (
                 <div className="contents-page">
                   <p className="page-kicker">A record of making</p>
@@ -263,16 +331,12 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
                   <p className="page-kicker">Chapter {String(sectionIndex + 1).padStart(2, "0")}</p>
                   <h1>{activeSection.title}</h1>
                   {activeSection.intro && <p className="chapter-intro">{activeSection.intro}</p>}
-                  {activeSection.entries.length > 0 ? (
-                    <button className="chapter-enter" onClick={goNext}>Enter this chapter <span aria-hidden="true">→</span></button>
-                  ) : (
-                    <p className="chapter-empty">Nothing has been published here yet.</p>
-                  )}
+                  <button className="chapter-enter" onClick={goNext}>Open chapter <span aria-hidden="true">→</span></button>
                 </article>
               ) : activeSection && activeEntry ? (
-                <article className={`entry-page ${activeSection.id === "skills" ? "skills-page" : ""}`} aria-live="polite">
+                <article className={`entry-page ${activeSection.id === "skills" ? "skills-page" : ""} ${activeSection.id === "watchlist" ? "watchlist-page" : ""}`} aria-live="polite">
                   <div className="entry-heading">
-                    <button className="back-link" onClick={goBack}>← Chapter</button>
+                    <button className="back-link" onClick={goBack}>← Contents</button>
                     <span className="entry-position">{String(view.entryIndex + 1).padStart(2, "0")} / {String(activeSection.entries.length).padStart(2, "0")}</span>
                   </div>
                   {activeSection.id === "skills" ? (
@@ -282,6 +346,47 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
                       <ul className="skills-list">
                         {activeSection.entries.map((entry) => <li key={entry.id}><span>{entry.title}</span></li>)}
                       </ul>
+                    </div>
+                  ) : activeSection.id === "watchlist" ? (
+                    <div className="entry-copy watchlist-entry-view">
+                      <p className="page-kicker">Watchlist</p>
+                      <h1>Films &amp; series</h1>
+                      {activeSection.intro && <p className="watchlist-intro">{activeSection.intro}</p>}
+                      <ul className="watchlist-list">
+                        {activeSection.entries.map((entry) => {
+                          const rating = watchlistRatings[entry.id] ?? entry.rating ?? 0
+                          return (
+                            <li key={entry.id} className="watchlist-item">
+                              <div className="watchlist-item-copy">
+                                <h2>{entry.title}</h2>
+                                <p>{entry.mediaType === "show" ? "TV show" : "Movie"}{entry.label ? ` · ${entry.label.replace(/^(Movie|TV show) · /, "")}` : ""}</p>
+                              </div>
+                              <div className="watchlist-item-rating" aria-label={`Your rating for ${entry.title}`}>
+                                <span className="watchlist-rating-label">Rating</span>
+                                <div className="rating-stars">
+                                  {[1, 2, 3, 4, 5].map((star) => <button key={star} className={`rating-star ${star <= rating ? "is-rated" : ""}`} onClick={() => rateWatchlistEntry(entry.id, star)} aria-label={`Rate ${star} out of 5`} aria-pressed={star <= rating}>★</button>)}
+                                </div>
+                                <span className="rating-value">{rating || "—"}<span aria-hidden="true">{rating ? " / 5" : ""}</span></span>
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  ) : activeSection.id === "resume" ? (
+                    <div className="entry-copy resume-entry-view">
+                      <p className="page-kicker">Resume</p>
+                      <h1>Curriculum vitae</h1>
+                      {activeSection.intro && <p className="resume-intro">{activeSection.intro}</p>}
+                      {activeEntry.url ? (
+                        <div className="resume-actions">
+                          <a className="resume-button" href={activeEntry.url} target="_blank" rel="noreferrer">View resume ↗</a>
+                          <a className="resume-download" href={activeEntry.url} download>Download PDF</a>
+                        </div>
+                      ) : (
+                        <p className="resume-empty">A resume PDF has not been uploaded yet.</p>
+                      )}
+                      {activeEntry.label && <p className="entry-label">{activeEntry.label}</p>}
                     </div>
                   ) : (
                     <div className="entry-copy">
@@ -302,7 +407,7 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
           <div className="reader-controls" aria-label="Book controls">
             <button onClick={goPrevious} disabled={view.kind === "contents" || Boolean(turnPhase)}>Previous</button>
             <span>{view.kind === "contents" ? "Contents" : activeSection?.title}</span>
-            <button onClick={view.kind === "contents" ? () => visibleSections[0] && enterSection(visibleSections[0]) : goNext} disabled={Boolean(turnPhase) || (view.kind === "section" && (activeSection?.entries.length ?? 0) === 0) || (view.kind === "section" && view.entryIndex >= 0 && (activeSection?.id !== "skills") && view.entryIndex === (activeSection?.entries.length ?? 1) - 1 && sectionIndex === visibleSections.length - 1)}>Next</button>
+            <button onClick={view.kind === "contents" ? () => findSectionWithEntries(visibleSections, 0, 1) && enterSection(findSectionWithEntries(visibleSections, 0, 1)!) : goNext} disabled={Boolean(turnPhase) || (view.kind === "section" && !activeSection?.entries.length) || (view.kind === "section" && !findSectionWithEntries(visibleSections, sectionIndex + 1, 1) && view.entryIndex >= 0 && (isSinglePageSection(activeSection!) || view.entryIndex === (activeSection?.entries.length ?? 1) - 1))}>Next</button>
           </div>
           <p className="reader-help">Drag the page corner · swipe · use ← →</p>
         </section>

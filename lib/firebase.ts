@@ -22,6 +22,8 @@ export interface PortfolioEntry {
   imageUrl: string
   url: string
   order: number
+  mediaType?: "movie" | "show"
+  rating?: number
 }
 
 export interface PortfolioSection {
@@ -42,6 +44,7 @@ export interface PortfolioData {
   skills: LegacySkill[]
   leadership: LegacyLeadership[]
   contact: LegacyContact
+  resume: { url: string; fileName: string; updatedAt?: number }
   sections: PortfolioSection[]
 }
 
@@ -53,8 +56,8 @@ interface LegacySkill { id: string; name: string; category: string; icon: string
 interface LegacyLeadership { id: string; org: string; role: string; description: string }
 interface LegacyContact { email: string; github: string; githubUsername: string; linkedin: string; linkedinUsername: string; chips: string[] }
 
-function entry(id: string, title: string, label: string, body: string, tags: string[], url = "", imageUrl = "", order = 0): PortfolioEntry {
-  return { id, title, label, body, tags, url, imageUrl, order }
+function entry(id: string, title: string, label: string, body: string, tags: string[], url = "", imageUrl = "", order = 0, mediaType?: "movie" | "show", rating?: number): PortfolioEntry {
+  return { id, title, label, body, tags, url, imageUrl, order, mediaType, rating }
 }
 
 function legacySections(data: Omit<PortfolioData, "sections">): PortfolioSection[] {
@@ -65,7 +68,14 @@ function legacySections(data: Omit<PortfolioData, "sections">): PortfolioSection
     { id: "skills", title: "Skills", slug: "skills", intro: "Tools and practices I use to move an idea from question to working software.", visible: true, order: 5, entries: data.skills.map((item, i) => entry(item.id, item.name, item.category, `A working part of my toolkit across ${item.category.toLowerCase()}.`, [], "", "", i)) },
     { id: "leadership", title: "Leadership", slug: "leadership", intro: "Community work that has taught me to listen, organize, and make room for others.", visible: true, order: 6, entries: data.leadership.map((item, i) => entry(item.id, item.role, item.org, item.description, [], "", "", i)) },
     { id: "about", title: "About", slug: "about", intro: "A little context behind the person making the work.", visible: true, order: 7, entries: data.about.paragraphs.map((paragraph, i) => entry(`about-${i}`, i === 0 ? "A short introduction" : `Notes, ${i + 1}`, "About me", paragraph, [], "", i === 0 ? data.about.portraitUrl : "", i)) },
-    { id: "contact", title: "Contact", slug: "contact", intro: "For internships, research opportunities, collaborations, and good questions.", visible: true, order: 8, entries: [entry("contact", "Send a message", data.contact.email, "I am always glad to hear from people building useful things. Reach me by email or find my work online.", data.contact.chips, `mailto:${data.contact.email}`, "", 0)] },
+    { id: "resume", title: "Resume", slug: "resume", intro: "A current record of experience, study, and the work I am ready to take on next.", visible: true, order: 8, entries: [entry("resume", "Curriculum vitae", data.resume.fileName || "PDF resume", "", [], data.resume.url, "", 0)] },
+    { id: "watchlist", title: "Watchlist", slug: "watchlist", intro: "Films and series that stayed with me, scored for the next rewatch.", visible: true, order: 9, entries: [
+      entry("spirited-away", "Spirited Away", "Movie · Hayao Miyazaki", "A dreamlike coming-of-age story with an unmatched sense of wonder and detail.", ["Animation", "Fantasy"], "", "", 0, "movie", 5),
+      entry("the-bear", "The Bear", "TV show · Christopher Storer", "A tense, tender study of craft, grief, and the people who make a kitchen feel like home.", ["Drama", "Comedy"], "", "", 1, "show", 4),
+      entry("interstellar", "Interstellar", "Movie · Christopher Nolan", "Big questions about time, distance, and love told with spectacular ambition.", ["Science fiction", "Drama"], "", "", 2, "movie", 5),
+      entry("severance", "Severance", "TV show · Dan Erickson", "A beautifully strange workplace mystery with immaculate production design and patience.", ["Mystery", "Thriller"], "", "", 3, "show", 4),
+    ] },
+    { id: "contact", title: "Contact", slug: "contact", intro: "For internships, research opportunities, collaborations, and good questions.", visible: true, order: 9, entries: [entry("contact", "Send a message", data.contact.email, "I am always glad to hear from people building useful things. Reach me by email or find my work online.", data.contact.chips, `mailto:${data.contact.email}`, "", 0)] },
   ]
 }
 
@@ -82,11 +92,12 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
     skills: ["Python", "AI / ML", "JavaScript", "Java", "Cybersecurity", "Backend", "Full-Stack", "Git / GitHub", "Data Analysis", "Leadership", "Outreach"].map((name, i) => ({ id: String(i + 1), name, category: i < 4 ? "Languages" : "Practice", icon: "" })),
     leadership: [{ id: "1", org: "Community", role: "YMCA Youth Soccer Volunteer", description: "Mentored youth athletes and promoted teamwork, confidence, and resilience." }, { id: "2", org: "Community", role: "Imperial Theatre Youth Corps", description: "Supported event coordination and audience operations during live theatre productions." }],
     contact: { email: "seanezeocha@gmail.com", github: "https://github.com/SeaUgoEze", githubUsername: "github.com/SeaUgoEze", linkedin: "https://linkedin.com/in/seanezeocha", linkedinUsername: "linkedin.com/in/seanezeocha", chips: ["Internships", "Research Opportunities", "Startup Projects", "AI Collaboration"] },
+    resume: { url: "", fileName: "", updatedAt: 0 },
   }
 
   try {
     const sectionDoc = await getDoc(doc(db, "portfolio", "sections"))
-    const names = ["hero", "about", "projects", "experience", "skills", "leadership", "contact"]
+    const names = ["hero", "about", "projects", "experience", "skills", "leadership", "contact", "resume"]
     const docs = await Promise.all(names.map((name) => getDoc(doc(db, "portfolio", name))))
     docs.forEach((snapshot, index) => {
       if (!snapshot.exists()) return
@@ -98,8 +109,15 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
         ;(data as any)[name] = { ...(data as any)[name], ...value }
       }
     })
-    const sections = sectionDoc.exists() && Array.isArray(sectionDoc.data().items) ? sectionDoc.data().items : legacySections(data)
-    return { ...data, sections: sections.map((section: PortfolioSection, index: number) => ({ ...section, order: section.order ?? index, visible: section.visible !== false, entries: (section.entries || []).filter((item: PortfolioEntry) => !(section.id === "research" && item.id === "research-interests")).map((item: PortfolioEntry, entryIndex: number) => ({ ...item, label: item.label || "", body: item.body || "", tags: item.tags || [], imageUrl: item.imageUrl || "", url: item.url || "", order: item.order ?? entryIndex })) })).sort((a: PortfolioSection, b: PortfolioSection) => a.order - b.order) }
+    const fallbackSections = legacySections(data)
+    const sections = sectionDoc.exists() && Array.isArray(sectionDoc.data().items) ? sectionDoc.data().items : fallbackSections
+    const withResume = sections.some((section: PortfolioSection) => section.id === "resume")
+      ? sections.map((section: PortfolioSection) => section.id === "resume" ? { ...section, entries: [fallbackSections.find((item) => item.id === "resume")!.entries[0]] } : section)
+      : [...sections, fallbackSections.find((section) => section.id === "resume")!]
+    const withWatchlist = withResume.some((section: PortfolioSection) => section.id === "watchlist")
+      ? withResume
+      : [...withResume, fallbackSections.find((section) => section.id === "watchlist")!]
+    return { ...data, sections: withWatchlist.map((section: PortfolioSection, index: number) => ({ ...section, order: section.order ?? index, visible: section.visible !== false, entries: (section.entries || []).filter((item: PortfolioEntry) => !(section.id === "research" && item.id === "research-interests")).map((item: PortfolioEntry, entryIndex: number) => ({ ...item, label: item.label || "", body: item.body || "", tags: item.tags || [], imageUrl: item.imageUrl || "", url: item.url || "", order: item.order ?? entryIndex })) })).sort((a: PortfolioSection, b: PortfolioSection) => a.order - b.order) }
   } catch {
     return { ...data, sections: legacySections(data) }
   }
