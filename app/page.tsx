@@ -15,5 +15,5 @@ export default function Page() {
     return <div className="book-loading">Opening the portfolio…</div>
   }
 
-  return <BookPortfolio name={data.hero.name} backgroundArt={data.hero.backgroundArt} sections={data.sections} />
+  return <BookPortfolio name={data.hero.name} backgroundArt={data.hero.backgroundArt} sections={data.sections} typography={data.typography} />
 }

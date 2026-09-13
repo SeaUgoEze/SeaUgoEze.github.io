@@ -1,12 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { PortfolioSection, PortfolioEntry } from "@/lib/firebase"
+import type { PortfolioSection, PortfolioEntry, TypographySettings } from "@/lib/firebase"
 
 interface BookPortfolioProps {
   name: string
   backgroundArt?: string
   sections: PortfolioSection[]
+  typography: TypographySettings
 }
 
 type BookView = { kind: "contents" } | { kind: "section"; sectionId: string; entryIndex: number }
@@ -35,7 +36,23 @@ function reducedMotion() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
 }
 
-export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioProps) {
+export function BookPortfolio({ name, backgroundArt, sections, typography }: BookPortfolioProps) {
+  const typographyStyle = {
+    "--type-cover-name": `${typography.coverName}px`,
+    "--type-cover-title": `${typography.coverTitle}px`,
+    "--type-cover-subtitle": `${typography.coverSubtitle}px`,
+    "--type-cover-hint": `${typography.coverHint}px`,
+    "--type-page-heading": `${typography.pageHeading}px`,
+    "--type-page-kicker": `${typography.pageKicker}px`,
+    "--type-body": `${typography.body}px`,
+    "--type-label": `${typography.label}px`,
+    "--type-tags": `${typography.tags}px`,
+    "--type-contents-entry": `${typography.contentsEntry}px`,
+    "--type-metadata": `${typography.metadata}px`,
+    "--type-navigation": `${typography.navigation}px`,
+    "--type-watchlist-title": `${typography.watchlistTitle}px`,
+    "--type-controls": `${typography.controls}px`,
+  } as React.CSSProperties
   const [opened, setOpened] = useState(false)
   const [opening, setOpening] = useState(false)
   const [view, setView] = useState<BookView>({ kind: "contents" })
@@ -256,7 +273,7 @@ export function BookPortfolio({ name, backgroundArt, sections }: BookPortfolioPr
   const turnClass = turnPhase ? `is-turning-${turnDirection} is-turning-${turnPhase}` : ""
 
   return (
-    <main className="book-stage" style={{ "--room-art": `url("${sceneArt}")` } as React.CSSProperties}>
+    <main className="book-stage" style={{ ...typographyStyle, "--room-art": `url("${sceneArt}")` } as React.CSSProperties}>
       {!opened ? (
         <section className={`cover-scene ${opening ? "is-opening" : ""}`} aria-label="Portfolio cover">
           <p className="cover-name">{name}</p>

@@ -13,6 +13,40 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
 const db = getFirestore(app)
 
+export interface TypographySettings {
+  coverName: number
+  coverTitle: number
+  coverSubtitle: number
+  coverHint: number
+  pageHeading: number
+  pageKicker: number
+  body: number
+  label: number
+  tags: number
+  contentsEntry: number
+  metadata: number
+  navigation: number
+  watchlistTitle: number
+  controls: number
+}
+
+export const defaultTypography: TypographySettings = {
+  coverName: 26,
+  coverTitle: 64,
+  coverSubtitle: 13,
+  coverHint: 15,
+  pageHeading: 68,
+  pageKicker: 14,
+  body: 17,
+  label: 17,
+  tags: 14,
+  contentsEntry: 22,
+  metadata: 13,
+  navigation: 15,
+  watchlistTitle: 22,
+  controls: 14,
+}
+
 export interface PortfolioEntry {
   id: string
   title: string
@@ -45,14 +79,15 @@ export interface PortfolioData {
   leadership: LegacyLeadership[]
   contact: LegacyContact
   resume: { url: string; fileName: string; updatedAt?: number }
+  typography: TypographySettings
   sections: PortfolioSection[]
 }
 
 interface LegacyProject {
   id: string; title: string; category: string; description: string; languages: string[]; imageUrl: string; videoUrl: string; githubUrl: string; highlights: string[]; location?: { x: number; y: number; region: string }
 }
-interface LegacyExperience { id: string; org: string; role: string; description: string; startDate: string; endDate: string }
-interface LegacySkill { id: string; name: string; category: string; icon: string }
+interface LegacyExperience { id: string; org: string; company?: string; role: string; description: string; startDate: string; endDate: string; imageUrl?: string }
+interface LegacySkill { id: string; name: string; category: string; icon: string; imageUrl?: string }
 interface LegacyLeadership { id: string; org: string; role: string; description: string }
 interface LegacyContact { email: string; github: string; githubUsername: string; linkedin: string; linkedinUsername: string; chips: string[] }
 
@@ -60,10 +95,13 @@ function entry(id: string, title: string, label: string, body: string, tags: str
   return { id, title, label, body, tags, url, imageUrl, order, mediaType, rating }
 }
 
+function normalizedImage(value: any): string {
+  return value?.imageUrl || value?.imageURL || value?.image || ""
+}
 function legacySections(data: Omit<PortfolioData, "sections">): PortfolioSection[] {
   return [
     { id: "projects", title: "Projects", slug: "projects", intro: "Selected work shaped by curiosity, utility, and the discipline of making things clear.", visible: true, order: 1, entries: data.projects.map((p, i) => entry(p.id, p.title, p.category, p.description, p.languages, p.githubUrl, p.imageUrl, i)) },
-    { id: "experience", title: "Experience", slug: "experience", intro: "Places where I have learned to work with people, constraints, and responsibility.", visible: true, order: 2, entries: data.experience.map((item, i) => entry(item.id, item.role, item.org, item.description, [item.startDate, item.endDate].filter(Boolean), "", "", i)) },
+    { id: "experience", title: "Experience", slug: "experience", intro: "Places where I have learned to work with people, constraints, and responsibility.", visible: true, order: 2, entries: data.experience.map((item, i) => entry(item.id, item.role, item.company || item.org, item.description, [item.startDate, item.endDate].filter(Boolean), "", item.imageUrl || "", i)) },
     { id: "education", title: "Education", slug: "education", intro: "The formal and informal study behind the work.", visible: true, order: 3, entries: [entry("queen's", "Bachelor of Computing", "Queen's University", "Studying computer science with a focus on artificial intelligence, backend systems, cybersecurity, and thoughtful software development.", ["Computer Science", "Artificial Intelligence"], "", "", 0)] },{ id: "research", title: "Research", slug: "research", intro: "", visible: true, order: 4, entries: [] },
     { id: "skills", title: "Skills", slug: "skills", intro: "Tools and practices I use to move an idea from question to working software.", visible: true, order: 5, entries: data.skills.map((item, i) => entry(item.id, item.name, item.category, `A working part of my toolkit across ${item.category.toLowerCase()}.`, [], "", "", i)) },
     { id: "leadership", title: "Leadership", slug: "leadership", intro: "Community work that has taught me to listen, organize, and make room for others.", visible: true, order: 6, entries: data.leadership.map((item, i) => entry(item.id, item.role, item.org, item.description, [], "", "", i)) },
@@ -93,10 +131,12 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
     leadership: [{ id: "1", org: "Community", role: "YMCA Youth Soccer Volunteer", description: "Mentored youth athletes and promoted teamwork, confidence, and resilience." }, { id: "2", org: "Community", role: "Imperial Theatre Youth Corps", description: "Supported event coordination and audience operations during live theatre productions." }],
     contact: { email: "seanezeocha@gmail.com", github: "https://github.com/SeaUgoEze", githubUsername: "github.com/SeaUgoEze", linkedin: "https://linkedin.com/in/seanezeocha", linkedinUsername: "linkedin.com/in/seanezeocha", chips: ["Internships", "Research Opportunities", "Startup Projects", "AI Collaboration"] },
     resume: { url: "", fileName: "", updatedAt: 0 },
+    typography: defaultTypography,
   }
 
   try {
     const sectionDoc = await getDoc(doc(db, "portfolio", "sections"))
+    const typographyDoc = await getDoc(doc(db, "portfolio", "typography"))
     const names = ["hero", "about", "projects", "experience", "skills", "leadership", "contact", "resume"]
     const docs = await Promise.all(names.map((name) => getDoc(doc(db, "portfolio", name))))
     docs.forEach((snapshot, index) => {
@@ -104,12 +144,13 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
       const name = names[index]
       const value = snapshot.data()
       if (["projects", "experience", "skills", "leadership"].includes(name)) {
-        ;(data as any)[name] = Array.isArray(value.items) ? value.items : (data as any)[name]
+        ;(data as any)[name] = Array.isArray(value.items) ? value.items.map((item: any) => ({ ...item, imageUrl: normalizedImage(item), ...(name === "experience" ? { org: item.company || item.org, company: item.company || item.org } : {}) })) : (data as any)[name]
       } else {
         ;(data as any)[name] = { ...(data as any)[name], ...value }
       }
     })
     const fallbackSections = legacySections(data)
+    if (typographyDoc.exists()) data.typography = { ...defaultTypography, ...typographyDoc.data() }
     const sections = sectionDoc.exists() && Array.isArray(sectionDoc.data().items) ? sectionDoc.data().items : fallbackSections
     const withResume = sections.some((section: PortfolioSection) => section.id === "resume")
       ? sections.map((section: PortfolioSection) => section.id === "resume" ? { ...section, entries: [fallbackSections.find((item) => item.id === "resume")!.entries[0]] } : section)
@@ -117,7 +158,7 @@ export async function fetchPortfolioData(): Promise<PortfolioData> {
     const withWatchlist = withResume.some((section: PortfolioSection) => section.id === "watchlist")
       ? withResume
       : [...withResume, fallbackSections.find((section) => section.id === "watchlist")!]
-    return { ...data, sections: withWatchlist.map((section: PortfolioSection, index: number) => ({ ...section, order: section.order ?? index, visible: section.visible !== false, entries: (section.entries || []).filter((item: PortfolioEntry) => !(section.id === "research" && item.id === "research-interests")).map((item: PortfolioEntry, entryIndex: number) => ({ ...item, label: item.label || "", body: item.body || "", tags: item.tags || [], imageUrl: item.imageUrl || "", url: item.url || "", order: item.order ?? entryIndex })) })).sort((a: PortfolioSection, b: PortfolioSection) => a.order - b.order) }
+    return { ...data, sections: withWatchlist.map((section: PortfolioSection, index: number) => ({ ...section, order: section.order ?? index, visible: section.visible !== false, entries: (section.entries || []).filter((item: PortfolioEntry) => !(section.id === "research" && item.id === "research-interests")).map((item: PortfolioEntry, entryIndex: number) => ({ ...item, label: item.label || "", body: item.body || "", tags: item.tags || [], imageUrl: normalizedImage(item), url: item.url || "", order: item.order ?? entryIndex })) })).sort((a: PortfolioSection, b: PortfolioSection) => a.order - b.order) }
   } catch {
     return { ...data, sections: legacySections(data) }
   }
